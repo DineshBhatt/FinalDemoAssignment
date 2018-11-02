@@ -4,16 +4,13 @@ import {
   IPropertyPaneConfiguration,
   PropertyPaneTextField
 } from '@microsoft/sp-webpart-base';
-import { escape } from '@microsoft/sp-lodash-subset';
 import * as JQuery from 'jquery';
 import { SPComponentLoader } from '@microsoft/sp-loader';
 import * as pnp from 'sp-pnp-js';
 require('bootstrap');
-import styles from './DemoAssignmentWebPart.module.scss';
 import charts from 'chart.js';
 import * as strings from 'DemoAssignmentWebPartStrings';
 import { SPHttpClient, SPHttpClientResponse, HttpClientResponse } from '@microsoft/sp-http';
-import { CurrentUser } from 'sp-pnp-js/lib/sharepoint/siteusers';
 var LocationList = new Array();
 var TotalVote = new Array();
 var TotalVotePerLocation = new Array();
@@ -22,33 +19,42 @@ var userExist = false;
 var userId;
 var userLocation;
 var ClientName;
+var contexthttp;
+var mainContext;
 export interface IDemoAssignmentWebPartProps {
   description: string;
-  
 }
-
 export default class DemoAssignmentWebPart extends BaseClientSideWebPart<IDemoAssignmentWebPartProps> {
   public render(): void {
     SPComponentLoader.loadCss("https://stackpath.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css");
     this.domElement.innerHTML = `<div class="container" style="width: inherit;">
     <h1><center>Polling</center></h1>
       <div class="Location"></div>
-      <a target="_blank" href="#"><button type="button" class="btn btn-success" style=" width: 110px; margin-left: 300px; margin-top: 55px"  href="#"> Submit </button>
-      </a>
+      <button type="button" class="btn btn-success" style=" width: 110px; margin-left: 300px; margin-top: 55px"> Submit </button>
+      
       <div id="chartContainer" style="height: 370px; width: 100%;">
         <canvas id="pieChart"></canvas>
       </div>
       </div>`;
-      // i am getting the Location Title
+      contexthttp=this.context.spHttpClient;
+      mainContext = this.context.pageContext.web.absoluteUrl;
+      this.TheDemoPageMethod(this.getTotalVote, this.getTotalLocation)
+       
+    }
+
+    private TheDemoPageMethod(callDemoLocation, callDemoVote)
+    {
       var Data;
       ClientName = this.context.pageContext.user.displayName;
+      callDemoVote();
+      //this.getTotalLocation();
+      this.getTotalVote();  
       this.getLocationInforamtion();
-      this.getTotalVote();
       JQuery(document).ready(function (){
-       
+        GetPieChart();
       });
-     
       function GetPieChart(){ 
+        alert("pie chart");
         var ctxP:any = document.getElementById("pieChart");
         var cnt:any=ctxP.getContext('2d');
         var myPieChart = new charts(ctxP, {
@@ -67,22 +73,18 @@ export default class DemoAssignmentWebPart extends BaseClientSideWebPart<IDemoAs
                 responsive: true
             }
         });
- 
       }
-
       JQuery(document).on('click','.btn-primary',function (){
         var a = $(this).attr("id");
         var ClickID = $(this);
         if(ClickID.hasClass('active')){
           $(".ClickedHere").prop('disabled', false);
-          
           ClickID.removeClass('active');
         }else{
           $(".ClickedHere").prop('disabled', true);
           ClickID.prop('disabled', false).addClass("active");
         }
-        
-        Data = a.split(" ");
+        Data = a;
       });
       JQuery(document).on('click', '.btn-success', function(){
         
@@ -91,102 +93,126 @@ export default class DemoAssignmentWebPart extends BaseClientSideWebPart<IDemoAs
           GetPieChart();
         }else{
           if(userExist){
-           
+            alert(ClientName+ "already Voted for"+userLocation+" are you sure you want to vote again");
             UpdateTheData();
+            
           }else{
             inserTheData();
+            
           }
-          alert(ClientName+ "already Voted for"+userLocation+" are you sure you want to vote again");
-          GetPieChart();
           Data = null;
         }
       });
      function UpdateTheData(){
-        
-        pnp.sp.web.lists.getByTitle("Dinesh_voting").items.getById(userId).update({Title : Data[0], UserName: ClientName});
-        
+      pnp.sp.web.lists.getByTitle("Dinesh_voting").items.getById(userId).update({Title : Data, UserName: ClientName}).then(()=> {
+        callDemoLocation();
+        callDemoVote();
+        GetPieChart();
+      });
+      alert("data updated");
      }
      function inserTheData(){
-      pnp.sp.web.lists.getByTitle("Dinesh_voting").items.add({Title : Data, UserName: ClientName})
-        
+      pnp.sp.web.lists.getByTitle("Dinesh_voting").items.add({Title : Data, UserName: ClientName}).then( ()=> {
+        callDemoLocation(), 
+        callDemoVote();
+        GetPieChart();
+      });
       alert("Data inserted");
      }
-      
     }
-   
-  getLocationInforamtion(){
-      
+
+ public getLocationInforamtion(){alert("dispaly the data and button");
     let LocVar:string ='';
     if(Environment.type===EnvironmentType.Local){
       this.domElement.querySelector('.Location').innerHTML = "no Location found";
     }else{
-      this.context.spHttpClient.get(
-        this.context.pageContext.web.absoluteUrl + "/_api/Web/Lists/getByTitle('DineshVotingLocation')/items?$select=Title,Image,ID,Locations", SPHttpClient.configurations.v1
+      contexthttp.get(
+      mainContext  + "/_api/Web/Lists/getByTitle('DineshVotingLocation')/items?$select=Title,Image,ID,Locations", SPHttpClient.configurations.v1
       ).then((Respons : SPHttpClientResponse)=>{
         Respons.json().then((listsObjects: any)=>{
           listsObjects.value.forEach(element => {
-            LocVar += `<div class='col-md-3'><img src="${element.Image}" alt="${element.Title}" style="width:100%; height:100px" /><h1>${element.Locations}</h1><button class='btn btn-primary ClickedHere' type="button" id="${element.Title} ${element.ID}"> Vote </button></div>`;
-            LocationList.push(element.Title);
+            LocVar += `<div class='col-md-3'><img src="${element.Image}" alt="${element.Title}" style="width:100%; height:100px" /><h1>${element.Locations}</h1><button class='btn btn-primary ClickedHere' type="button" id="${element.Title}"> Vote </button></div>`;
+            
           });
           this.domElement.querySelector('.Location').innerHTML = LocVar ;
-          
+          if(userExist){
+            $(".ClickedHere").prop('disabled', true);
+            $("#"+userLocation).prop('disabled', false).addClass("active");
+          }
         });
       });
     }
   }
-  getTotalVote(){
-      
-    let LocVar:string ='';
+ public  getTotalLocation(){
+    alert("total location");
     if(Environment.type===EnvironmentType.Local){
       this.domElement.querySelector('.Location').innerHTML = "no Location found";
     }else{
-      this.context.spHttpClient.get(
-        this.context.pageContext.web.absoluteUrl + "/_api/Web/Lists/getByTitle('Dinesh_voting')/items?$select=Title,ID,UserName", SPHttpClient.configurations.v1
-      ).then((respons : SPHttpClientResponse)=>{
-        respons.json().then((listsObjects: any)=>{
+      contexthttp.get(
+        mainContext + "/_api/Web/Lists/getByTitle('DineshVotingLocation')/items?$select=Title,Image,ID,Locations", SPHttpClient.configurations.v1
+      ).then((Respons : SPHttpClientResponse)=>{
+        Respons.json().then((listsObjects: any)=>{
+          LocationList = [];
           listsObjects.value.forEach(element => {
-            TotalVote.push(element.Title, element.ID, element.UserName);
+            LocationList.push(element.Title);
           });
-          this.getTotalVotePerLocation();
         });
       });
     }
   }
-
-  getTotalVotePerLocation(){
-    var delhiTotalVote=0;
-    var MumbaiTotalVote=0;
-    var chennaiTotalVote=0;
-    var HyderabadTotalVote=0;
-    for (var i = 0; i < TotalVote.length; i=i+3) { 
-      if(TotalVote[i]=="Delhi"){
-        delhiTotalVote++;
-      }
-      if(TotalVote[i]=="Mumbai"){
-        MumbaiTotalVote++;
-      }
-      if(TotalVote[i]=="Chennai"){
-        chennaiTotalVote++;
-      }
-      if(TotalVote[i]=="Hyderabad"){
-        HyderabadTotalVote++;
-      }
-      if(TotalVote[i+2]==ClientName){
-        userExist = true;
-        userId = TotalVote[i+1];
-        userLocation = TotalVote[i];
-      }
+  public getTotalVote()
+  {
+    alert(" total vote")
+   
+    let LocVar:string ='';
+    
+    if(Environment.type===EnvironmentType.Local){
+      this.domElement.querySelector('.Location').innerHTML = "no Location found";
+    }else{
+      contexthttp.get(
+        mainContext + "/_api/Web/Lists/getByTitle('Dinesh_voting')/items?$select=Title,ID,UserName", SPHttpClient.configurations.v1
+      ).then((respons : SPHttpClientResponse)=>{
+        respons.json().then((listsObjects: any)=>{
+          TotalVote = [];
+          listsObjects.value.forEach(element => {
+            TotalVote.push(element.Title, element.ID, element.UserName);
+          });
+          TotalVotePerLocation = [];
+          var delhiTotalVote=0;
+          var MumbaiTotalVote=0;
+          var chennaiTotalVote=0;
+          var HyderabadTotalVote=0;
+          for (var i = 0; i < TotalVote.length; i=i+3) { 
+            if(TotalVote[i]==LocationList[0]){
+              delhiTotalVote++;
+            }
+            if(TotalVote[i]==LocationList[1]){
+              MumbaiTotalVote++;
+            }
+            if(TotalVote[i]==LocationList[2]){
+              chennaiTotalVote++;
+            }
+            if(TotalVote[i]==LocationList[3]){
+              HyderabadTotalVote++;
+            }
+            if(TotalVote[i+2]==ClientName){
+              userExist = true;
+              userId = TotalVote[i+1];
+              userLocation = TotalVote[i];
+            }
+          }
+          TotalVotePerLocation.push(delhiTotalVote);
+          TotalVotePerLocation.push(MumbaiTotalVote);
+          TotalVotePerLocation.push(chennaiTotalVote);
+          TotalVotePerLocation.push(HyderabadTotalVote);
+        });
+      });
     }
-    TotalVotePerLocation.push(delhiTotalVote);
-    TotalVotePerLocation.push(MumbaiTotalVote);
-    TotalVotePerLocation.push(chennaiTotalVote);
-    TotalVotePerLocation.push(HyderabadTotalVote);
   }
-
+  
   protected get dataVersion(): Version {
     return Version.parse('1.0');
   }
-  
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
     return {
       pages: [
